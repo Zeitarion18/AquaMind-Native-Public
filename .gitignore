@@ -1,0 +1,26 @@
+.DS_Store
+build/
+DerivedData/
+ipa/
+*.xcuserstate
+*.xcuserdata/
+
+# Device data, local backups, credentials and provisioning
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+*.pfx
+*.keystore
+*.sqlite
+*.sqlite3
+hydration.json
+**/hydration.json
+*.xcconfig.private
+*.secrets.*
+*.log

@@ -1,0 +1,181 @@
+name: Build AquaMind Native iPhone IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Verify Smart Hydration 2.0, custom analytics, queue diagnostics and legacy data
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/ReminderPlanner.swift \
+            AquaMind/Core/HydrationRing.swift \
+            AquaMind/Core/HydrationAnalytics.swift \
+            Shared/WidgetSnapshot.swift \
+            Tests/PlannerSmokeTests.swift \
+            -o /tmp/aquamind-planner-tests
+          /tmp/aquamind-planner-tests
+      - name: Test rounded arc caps, escaping circular bubbles and unchanged hydration totals
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/HydrationAnalytics.swift \
+            AquaMind/Core/HydrationRing.swift \
+            AquaMind/Core/AuroraRingGeometry.swift \
+            Tests/AuroraRingGeometryTests.swift \
+            -o /tmp/aquamind-aurora-ring-tests
+          /tmp/aquamind-aurora-ring-tests
+      - name: Validate 3x Retina raster pixel mask for partial bubble entry and exit
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/HydrationAnalytics.swift \
+            AquaMind/Core/HydrationRing.swift \
+            AquaMind/Core/AuroraRingGeometry.swift \
+            Tests/AuroraBubbleMaskTests.swift \
+            -framework SwiftUI -framework CoreGraphics \
+            -o /tmp/aquamind-aurora-mask-tests
+          /tmp/aquamind-aurora-mask-tests
+      - name: Validate the mask is applied after bubble compositing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("AquaMind/Views/LiquidProgressRing.swift").read_text()
+          g = Path("AquaMind/Core/AuroraRingGeometry.swift").read_text()
+          assert ".mask {" in s
+          assert "Circle()" in s[s.index(".mask {"):]
+          assert ".trim(from: range.start, to: range.end)" in s[s.index(".mask {"):]
+          assert "bubbleMaskStrokeWidth" in s[s.index(".mask {"):]
+          assert ".rotationEffect(.degrees(-90))" in s[s.index(".mask {"):]
+          assert "lineCap: .round" in s[s.index(".mask {"):]
+          assert "bubbleCanvas" in s and "Path(ellipseIn: rect)" in s
+          assert "bubbleMaskInset = 0.55" in g
+          assert "bubbles: bubblesEnabled && liveEffects" in s
+          assert ".allowsHitTesting(false)" in s and ".accessibilityHidden(true)" in s
+          print("0.7.5 renderer has an exact rounded liquid-only clip after bubble rendering")
+          PY
+      - name: Validate Aurora Ring controls and effects
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          ring = Path("AquaMind/Views/LiquidProgressRing.swift").read_text()
+          settings = Path("AquaMind/Views/SettingsView.swift").read_text()
+          geometry = Path("AquaMind/Core/AuroraRingGeometry.swift").read_text()
+          assert '@AppStorage("AquaMind.auroraBubbles") private var bubblesEnabled = true' in ring
+          assert '@AppStorage("AquaMind.auroraBubbles") private var auroraBubbles = true' in settings
+          assert 'Toggle(isOn: $auroraBubbles)' in settings
+          assert 'bubbles: bubblesEnabled && liveEffects' in ring
+          assert '!reduceMotion' in ring and 'scenePhase == .active' in ring
+          assert 'lineCap: .round' in ring
+          assert 'lineCap: .butt' not in ring
+          assert 'movingHighlight' not in ring
+          assert 'bubbleCanvas' in ring and 'Path(ellipseIn: rect)' in ring
+          assert 'AuroraRingGeometry.roundedArc' in ring
+          assert 'auroraShimmer' in settings and 'auroraGlow' in settings and 'auroraFill' in settings
+          assert 'bubbleCanvasPadding' in geometry
+          print("Aurora Ring 0.7.4 settings and SwiftUI animation checks passed")
+          PY
+      - name: Test missed-log follow-up reminders, stable queue and sleep
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/ReminderPlanner.swift \
+            Tests/ReminderFollowUpTests.swift \
+            -o /tmp/aquamind-reminder-followups
+          /tmp/aquamind-reminder-followups
+      - name: Test custom drink identities, ring, colors, history and icon catalog
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/HydrationRing.swift \
+            AquaMind/Core/HydrationAnalytics.swift \
+            AquaMind/Core/DrinkIconCatalog.swift \
+            Tests/PersonalDrinksSmokeTests.swift \
+            -o /tmp/aquamind-personal-drink-tests
+          /tmp/aquamind-personal-drink-tests
+      - name: Verify editor focus and keyboard dismissal wiring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          editor = Path("AquaMind/Views/PersonalizationView.swift").read_text()
+          picker = Path("AquaMind/Views/DrinkIconPicker.swift").read_text()
+
+          assert '@FocusState private var nameFieldFocused: Bool' in editor
+          assert '.focused($nameFieldFocused)' in editor
+          assert '.submitLabel(.done)' in editor
+          assert '.onSubmit { nameFieldFocused = false }' in editor
+          assert 'nameFieldFocused = false\n                        showingCatalog = true' in editor
+          assert 'nameFieldFocused = false\n                                drink.palette = index' in editor
+          assert editor.count('.scrollDismissesKeyboard(.interactively)') >= 2
+          assert editor.count('ToolbarItemGroup(placement: .keyboard)') == 2
+          assert 'Button("Готово") { nameFieldFocused = false }' in editor
+          assert 'Button("Готово") { vesselNameFocused = false }' in editor
+          assert 'store.saveCustomDrink(drink)' in editor
+          assert 'store.saveVessel(vessel)' in editor
+
+          assert '@FocusState private var searchFieldFocused: Bool' in picker
+          assert '.focused($searchFieldFocused)' in picker
+          assert '.scrollDismissesKeyboard(.interactively)' in picker
+          assert 'Button("Готово") { searchFieldFocused = false }' in picker
+          assert 'selectedSymbol = option.symbol' in picker
+
+          print("AquaMind 0.7.2 editor focus source checks passed")
+          PY
+      - name: Check approved drink icons
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for icon in ("DrinkJuice", "DrinkSoda", "DrinkMilk", "DrinkCompote", "DrinkBroth"):
+              folder = Path("AquaMind/Assets.xcassets") / (icon + ".imageset")
+              image = folder / "drink.jpg"
+              assert image.exists() and image.stat().st_size > 2000, icon
+              assert json.loads((folder / "Contents.json").read_text())["images"][0]["filename"] == "drink.jpg"
+          PY
+      - name: Generate native iPhone Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build unsigned iPhone application
+        run: |
+          xcodebuild -project AquaMind.xcodeproj -scheme AquaMind \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package IPA for Sideloadly
+        run: |
+          mkdir -p ipa/Payload
+          cp -R build/Build/Products/Release-iphoneos/AquaMind.app ipa/Payload/
+          cd ipa
+          zip -qr AquaMind-Native-0.7.5-Standard.ipa Payload
+      - name: Verify real IPA metadata and screen-mode regression
+        run: |
+          python3 - <<'PY'
+          import plistlib, zipfile
+          path = "ipa/AquaMind-Native-0.7.5-Standard.ipa"
+          with zipfile.ZipFile(path) as z:
+              assert z.testzip() is None
+              info = plistlib.loads(z.read("Payload/AquaMind.app/Info.plist"))
+              assert info["CFBundleShortVersionString"] == "0.7.5"
+              assert info["CFBundleVersion"] == "25"
+              assert info["CFBundleIdentifier"] == "com.aquamind.nativehydration"
+              assert info.get("UIDeviceFamily") == [1], info.get("UIDeviceFamily")
+              assert isinstance(info.get("UILaunchScreen"), dict), "missing full-screen launch configuration"
+              assert isinstance(info.get("UIApplicationSceneManifest"), dict), "missing iPhone scene configuration"
+              assert not any("AquaMindWidgets.appex/" in x for x in z.namelist())
+              assert any("AquaMind.app/AquaMind" in x for x in z.namelist())
+              print("AquaMind 0.7.5 IPA verified: correct version, iPhone-only full screen, no WidgetKit")
+          PY
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AquaMind-Native-0.7.5-Standard-IPA
+          path: ipa/AquaMind-Native-0.7.5-Standard.ipa
+          if-no-files-found: error
