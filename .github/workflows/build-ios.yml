@@ -1,4 +1,4 @@
-name: Build AquaMind Native iPhone IPA
+name: Build AquaMind Native 0.7.6 iPhone IPA
 
 on:
   workflow_dispatch:
@@ -35,6 +35,42 @@ jobs:
             Tests/AuroraRingGeometryTests.swift \
             -o /tmp/aquamind-aurora-ring-tests
           /tmp/aquamind-aurora-ring-tests
+      - name: Test Smart Reminders 3.0 schedule, persistence and sleep regression
+        run: |
+          swiftc -parse-as-library \
+            AquaMind/Core/HydrationModels.swift \
+            AquaMind/Core/ReminderPlanner.swift \
+            Tests/SmartReminders3Tests.swift \
+            -o /tmp/aquamind-smart-reminders-tests
+          /tmp/aquamind-smart-reminders-tests
+      - name: Verify sound, Snooze action and pause are applied to iOS requests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          notice = Path("AquaMind/Core/NotificationManager.swift").read_text()
+          store = Path("AquaMind/Core/HydrationStore.swift").read_text()
+          planner = Path("AquaMind/Core/ReminderPlanner.swift").read_text()
+          settings = Path("AquaMind/Views/SettingsView.swift").read_text()
+          home = Path("AquaMind/Views/HomeView.swift").read_text()
+          assert 'SNOOZE_PREFERRED' in notice
+          assert 'content.sound = settings.reminderSoundEnabled ? .default : nil' in notice
+          assert '(old.content.sound != nil) == settings.reminderSoundEnabled' in notice
+          assert 'let existingSnoozes = existing.filter' in notice
+          assert 'settings.snoozeUntil' in notice
+          assert 'settings.remindersPaused(at: currentNow)' in notice
+          assert 'settings.snoozeQuietUntil()' in planner
+          assert 'settings.reminderPauseUntil' in planner
+          assert 'settings.snoozeUntil = nil' in store
+          assert 'func resumeReminders()' in store
+          assert 'func pauseUntilNextWake()' in store
+          assert 'func setReminderSound(' in store
+          assert 'func setReminderStyle(' in store
+          assert 'Тихий' not in settings or 'Звук напоминаний' in settings
+          assert 'Отложить в уведомлении' in settings
+          assert 'Smart Hydration 3.0' in home
+          assert '0.7.6 Smart Reminders 3.0' in settings
+          print("Smart Reminders 3.0 iOS wiring and settings source checks passed")
+          PY
       - name: Validate 3x Retina raster pixel mask for partial bubble entry and exit
         run: |
           swiftc -parse-as-library \
@@ -154,28 +190,28 @@ jobs:
           mkdir -p ipa/Payload
           cp -R build/Build/Products/Release-iphoneos/AquaMind.app ipa/Payload/
           cd ipa
-          zip -qr AquaMind-Native-0.7.5-Standard.ipa Payload
+          zip -qr AquaMind-Native-0.7.6-Standard.ipa Payload
       - name: Verify real IPA metadata and screen-mode regression
         run: |
           python3 - <<'PY'
           import plistlib, zipfile
-          path = "ipa/AquaMind-Native-0.7.5-Standard.ipa"
+          path = "ipa/AquaMind-Native-0.7.6-Standard.ipa"
           with zipfile.ZipFile(path) as z:
               assert z.testzip() is None
               info = plistlib.loads(z.read("Payload/AquaMind.app/Info.plist"))
-              assert info["CFBundleShortVersionString"] == "0.7.5"
-              assert info["CFBundleVersion"] == "25"
+              assert info["CFBundleShortVersionString"] == "0.7.6"
+              assert info["CFBundleVersion"] == "26"
               assert info["CFBundleIdentifier"] == "com.aquamind.nativehydration"
               assert info.get("UIDeviceFamily") == [1], info.get("UIDeviceFamily")
               assert isinstance(info.get("UILaunchScreen"), dict), "missing full-screen launch configuration"
               assert isinstance(info.get("UIApplicationSceneManifest"), dict), "missing iPhone scene configuration"
               assert not any("AquaMindWidgets.appex/" in x for x in z.namelist())
               assert any("AquaMind.app/AquaMind" in x for x in z.namelist())
-              print("AquaMind 0.7.5 IPA verified: correct version, iPhone-only full screen, no WidgetKit")
+              print("AquaMind 0.7.6 IPA verified: correct version, iPhone-only full screen, no WidgetKit")
           PY
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AquaMind-Native-0.7.5-Standard-IPA
-          path: ipa/AquaMind-Native-0.7.5-Standard.ipa
+          name: AquaMind-Native-0.7.6-Standard-IPA
+          path: ipa/AquaMind-Native-0.7.6-Standard.ipa
           if-no-files-found: error
