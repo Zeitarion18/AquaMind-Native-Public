@@ -67,7 +67,7 @@ jobs:
           assert "ReminderCountdown.message(until: verified, from: timeline.date)" in home
           assert "store.restorePendingReminders()" in home
           assert ".onChange(of: timeline.date)" in home
-          assert "wakeConfirmationPending(at:" in models
+          assert "func wakeConfirmationPending(at date:" in models
           assert "wakeConfirmationPending(at: timeline.date)" in home
           assert "snoozeCount: snooze.count" in diagnostics
           print("AquaMind 0.7.9 iOS source checks passed")
