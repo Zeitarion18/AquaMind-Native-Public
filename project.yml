@@ -26,8 +26,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aquamind.nativehydration
         PRODUCT_NAME: AquaMind
-        MARKETING_VERSION: '0.7.6'
-        CURRENT_PROJECT_VERSION: '26'
+        MARKETING_VERSION: '0.7.7'
+        CURRENT_PROJECT_VERSION: '27'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: AquaMind
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
