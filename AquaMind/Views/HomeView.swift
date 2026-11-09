@@ -392,6 +392,7 @@ struct HomeView: View {
             let info = ReminderPlanner.insight(entries: store.entries,
                                                settings: store.settings, now: timeline.date)
             let night = ReminderPlanner.isQuietTime(settings: store.settings, now: timeline.date)
+            let paused = store.settings.remindersPaused(at: timeline.date)
             let pendingTime: Date? = {
                 switch store.reminderQueueStatus {
                 case .confirmed(let date, _), .postponed(let date):
@@ -406,11 +407,16 @@ struct HomeView: View {
                           ? "moon.stars.fill" : "bell.badge.fill")
                         .font(.title3)
                         .foregroundStyle(AquaTheme.cyan)
-                    Text("Smart Hydration")
+                    Text("Smart Hydration 3.0")
                         .font(.system(.headline, design: .rounded))
                         .foregroundStyle(.white)
                     Spacer()
-                    if night && store.settings.remindersEnabled {
+                    if paused && store.settings.remindersEnabled {
+                        Text("ПАУЗА")
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(0.7)
+                            .foregroundStyle(AquaTheme.cyan)
+                    } else if night && store.settings.remindersEnabled {
                         Text("НОЧНОЙ РЕЖИМ")
                             .font(.system(size: 10, weight: .bold))
                             .tracking(0.7)
@@ -419,6 +425,11 @@ struct HomeView: View {
                 }
 
                 if store.settings.remindersEnabled {
+                    Label("\(store.settings.reminderStyle.title) режим · \(store.settings.reminderSoundEnabled ? "со звуком" : "без звука")",
+                          systemImage: "slider.horizontal.3")
+                        .font(.caption)
+                        .foregroundStyle(AquaTheme.cyan)
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text(pendingTime == nil ? "Расчётное следующее напоминание" : "Следующее напоминание iPhone")
                             .font(.caption)
@@ -438,7 +449,12 @@ struct HomeView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if night {
+                    if paused {
+                        Label("Уведомления на паузе до \(AquaDate.time(store.settings.reminderPauseUntil ?? timeline.date, timeZone: store.settings.timeZone)). Возобновить можно в настройках.",
+                              systemImage: "pause.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(AquaTheme.muted)
+                    } else if night {
                         Label("Сейчас время отдыха. AquaMind не будет беспокоить тебя до начала дня.",
                               systemImage: "moon.zzz")
                             .font(.footnote)
