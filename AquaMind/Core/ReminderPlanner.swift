@@ -412,11 +412,36 @@ enum ReminderPlanner {
     }
 }
 
+/// A compact, local countdown driven by confirmed iOS queue dates.
+/// The view refreshes this every minute; it never starts an extra timer.
+enum ReminderCountdown {
+    static func message(until date: Date, from now: Date) -> String {
+        let seconds = date.timeIntervalSince(now)
+        guard seconds > 0 else { return "Время наступило" }
+        guard seconds >= 60 else { return "Менее минуты" }
+
+        let minutes = Int(ceil(seconds / 60))
+        let days = minutes / (24 * 60)
+        let hours = (minutes % (24 * 60)) / 60
+        let remainingMinutes = minutes % 60
+        if days > 0 {
+            return hours > 0 ? "Через \(days) д \(hours) ч" : "Через \(days) д"
+        }
+        if hours > 0 {
+            return remainingMinutes > 0
+                ? "Через \(hours) ч \(remainingMinutes) мин"
+                : "Через \(hours) ч"
+        }
+        return "Через \(minutes) мин"
+    }
+}
+
 /// Checks that pending iOS calendar triggers match the already-fixed plan.
-/// The system normalizes calendar seconds, hence the 65-second tolerance.
+/// A second Snooze must never be hidden by an otherwise healthy regular queue.
 enum NotificationQueueComparison {
-    static func matches(planned: [Date], queued: [Date]) -> Bool {
-        guard planned.count == queued.count else { return false }
+    static func matches(planned: [Date], queued: [Date],
+                        snoozeCount: Int = 0) -> Bool {
+        guard snoozeCount <= 1, planned.count == queued.count else { return false }
         return zip(planned.sorted(), queued.sorted()).allSatisfy {
             abs($0.timeIntervalSince($1)) <= 65
         }
