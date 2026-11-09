@@ -359,24 +359,27 @@ struct HomeView: View {
     private var sleepStatusCard: some View {
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
             let sleeping = store.settings.isManualSleepActive(at: timeline.date)
+            let awaitingWake = store.settings.wakeConfirmationPending(at: timeline.date)
             let today = store.settings.schedule(for:
                 store.settings.calendar.component(.weekday, from: timeline.date))
             HStack(spacing: 12) {
-                Image(systemName: sleeping ? "moon.zzz.fill" : "sun.horizon.fill")
+                Image(systemName: sleeping ? "moon.zzz.fill" : awaitingWake ? "sunrise.fill" : "sun.horizon.fill")
                     .foregroundStyle(AquaTheme.cyan)
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(sleeping ? "Пауза на сон" : "Твой режим дня")
+                    Text(sleeping ? "Пауза на сон" : awaitingWake ? "Отметь пробуждение" : "Твой режим дня")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                     Text(sleeping
                          ? "До \(AquaDate.time(store.settings.sleepPauseUntil ?? timeline.date, timeZone: store.settings.timeZone)) или «Проснулся»"
-                         : "Сегодня: \(today.wakeLabel)–\(today.sleepLabel)")
+                         : awaitingWake
+                           ? "Автопауза закончилась. Укажи время подъёма."
+                           : "Сегодня: \(today.wakeLabel)–\(today.sleepLabel)")
                         .font(.caption).foregroundStyle(AquaTheme.muted)
                 }
                 Spacer(minLength: 0)
-                Button(sleeping ? "Проснулся" : "Лёг спать") {
-                    if sleeping { store.wakeUp() }
+                Button(awaitingWake ? "Проснулся" : "Лёг спать") {
+                    if awaitingWake { store.wakeUp() }
                     else { store.beginSleep() }
                 }
                 .buttonStyle(.bordered)
