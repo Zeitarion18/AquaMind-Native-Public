@@ -9,13 +9,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private override init() { super.init() }
 
-    func configure() {
+    func configure(snoozeMinutes: Int = 15) {
+        let preferred = [5, 10, 15, 30, 60].contains(snoozeMinutes) ? snoozeMinutes : 15
         let actions = [
             UNNotificationAction(identifier: "DRANK_150", title: "Выпил 150 мл", options: []),
             UNNotificationAction(identifier: "DRANK_250", title: "Выпил 250 мл", options: []),
             UNNotificationAction(identifier: "DRANK_350", title: "Выпил 350 мл", options: []),
-            UNNotificationAction(identifier: "SNOOZE_15", title: "Через 15 мин", options: []),
-            UNNotificationAction(identifier: "SNOOZE_60", title: "Через час", options: [])
+            UNNotificationAction(identifier: "SNOOZE_PREFERRED",
+                                 title: "Через \(preferred) мин", options: [])
         ]
         let category = UNNotificationCategory(identifier: "WATER_REMINDER", actions: actions,
                                                intentIdentifiers: [], options: [])
@@ -41,10 +42,13 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             let existingNormal = existing.filter {
                 $0.identifier.hasPrefix("am_reminder_")
             }
+            let existingSnoozes = existing.filter {
+                $0.identifier.hasPrefix("am_snooze_")
+            }
 
             if !settings.remindersEnabled {
                 center.removePendingNotificationRequests(
-                    withIdentifiers: existingNormal.map(\.identifier)
+                    withIdentifiers: (existingNormal + existingSnoozes).map(\.identifier)
                 )
                 lastPlannedDates = []
                 HydrationStore.shared.setReminderQueueStatus(.disabled)
@@ -56,6 +60,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 HydrationStore.shared.setReminderQueueStatus(.permissionRequired)
                 return
             }
+
+            // Update category labels after a preference change or app restart.
+            configure(snoozeMinutes: settings.snoozeMinutes)
 
             // Time anchors are independent of every refresh or clock tick.
             let dates = ReminderPlanner.upcomingDates(
@@ -80,8 +87,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 let id = ReminderPlanner.notificationID(for: date)
                 if let old = existingByID[id],
                    let next = (old.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate(),
-                   abs(next.timeIntervalSince(date)) <= 60 {
-                    // Same date is already pending in iOS. Do not touch it.
+                   abs(next.timeIntervalSince(date)) <= 60 &&
+                   (old.content.sound != nil) == settings.reminderSoundEnabled {
+                    // Date and sound match; keep stable pending request.
                     continue
                 }
                 if existingByID[id] != nil { removeIDs.append(id) }
@@ -101,7 +109,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 let content = UNMutableNotificationContent()
                 content.title = "AquaMind 💧"
                 content.body = "Не забывай о воде. Если хочется пить — самое время сделать несколько глотков."
-                content.sound = .default
+                content.sound = settings.reminderSoundEnabled ? .default : nil
                 content.categoryIdentifier = "WATER_REMINDER"
                 var components = settings.calendar.dateComponents(
                     [.year, .month, .day, .hour, .minute], from: date
@@ -118,6 +126,60 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                     try await center.add(request)
                 } catch {
                     print("AquaMind: failed to schedule \(date): \(error)")
+                }
+            }
+
+            // Keep at most one explicitly postponed notification. Its time
+            // is stored in hydration.json, so re-opening the app never restores
+            // earlier regular requests during the Snooze protection interval.
+            let currentNow = Date()
+            let goalReached = ReminderPlanner.dailyTotal(
+                entries: entries, on: currentNow, calendar: settings.calendar
+            ) >= settings.dailyGoal
+            let due = settings.snoozeUntil.flatMap { target -> Date? in
+                guard target > currentNow.addingTimeInterval(5),
+                      settings.remindersEnabled,
+                      !settings.remindersPaused(at: currentNow),
+                      !goalReached,
+                      !ReminderPlanner.isQuietTime(settings: settings, now: target)
+                else { return nil }
+                return target
+            }
+            let snoozeID = due.map { "am_snooze_\(Int($0.timeIntervalSince1970))" }
+            var retainedSnooze = false
+            var removedSnoozeIDs: [String] = []
+            for request in existingSnoozes {
+                if request.identifier == snoozeID,
+                   let date = (request.trigger as? UNTimeIntervalNotificationTrigger)?
+                    .nextTriggerDate(),
+                   let due,
+                   abs(date.timeIntervalSince(due)) <= 3,
+                   (request.content.sound != nil) == settings.reminderSoundEnabled {
+                    retainedSnooze = true
+                } else {
+                    removedSnoozeIDs.append(request.identifier)
+                }
+            }
+            if !removedSnoozeIDs.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: removedSnoozeIDs)
+            }
+            if let due, let snoozeID, !retainedSnooze {
+                let content = UNMutableNotificationContent()
+                content.title = "AquaMind 💧"
+                content.body = "Ты просил напомнить о воде чуть позже."
+                content.categoryIdentifier = "WATER_REMINDER"
+                content.sound = settings.reminderSoundEnabled ? .default : nil
+                let remaining = due.timeIntervalSinceNow
+                if remaining > 5 {
+                    let request = UNNotificationRequest(
+                        identifier: snoozeID, content: content,
+                        trigger: UNTimeIntervalNotificationTrigger(
+                            timeInterval: remaining, repeats: false))
+                    do {
+                        try await center.add(request)
+                    } catch {
+                        print("AquaMind: unable to schedule snooze: \(error)")
+                    }
                 }
             }
 
@@ -176,43 +238,6 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         return .mismatch(planned: planned.count, queued: actual.count)
     }
 
-    @MainActor
-    func snooze(minutes: Int) {
-        guard (1...240).contains(minutes) else { return }
-        let previousTask = schedulingTask
-        schedulingTask = Task {
-            await previousTask?.value
-            let center = UNUserNotificationCenter.current()
-            let due = Date().addingTimeInterval(TimeInterval(minutes * 60))
-            let current = await center.pendingNotificationRequests()
-            // Snooze should really mean "not before this time".
-            let tooEarly = current.filter { request in
-                (request.identifier.hasPrefix("am_reminder_") || request.identifier.hasPrefix("am_snooze_")) &&
-                ((request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
-                 ?? (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
-                 ?? .distantFuture) <= due.addingTimeInterval(20 * 60)
-            }.map(\.identifier)
-            center.removePendingNotificationRequests(withIdentifiers: tooEarly)
-
-            let content = UNMutableNotificationContent()
-            content.title = "AquaMind 💧"
-            content.body = "Ты просил напомнить о воде чуть позже."
-            content.categoryIdentifier = "WATER_REMINDER"
-            content.sound = .default
-            let request = UNNotificationRequest(identifier: "am_snooze_\(UUID().uuidString)",
-                                                content: content,
-                                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(minutes * 60), repeats: false))
-            do {
-                try await center.add(request)
-                HydrationStore.shared.setReminderQueueStatus(.postponed(next: due))
-            } catch {
-                print("AquaMind: snooze scheduling failed: \(error)")
-                HydrationStore.shared.setReminderQueueStatus(.mismatch(planned: lastPlannedDates.count, queued: 0))
-            }
-        }
-    }
-
-
     /// Diagnostic notification: independent of the normal hydration schedule.
     @MainActor
     func scheduleOneMinuteTest() async throws -> Date {
@@ -226,7 +251,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         content.title = "AquaMind 💧"
         content.body = "Тест пройден! AquaMind умеет присылать напоминания."
-        content.sound = .default
+        content.sound = HydrationStore.shared.settings.reminderSoundEnabled ? .default : nil
         content.categoryIdentifier = "WATER_REMINDER"
 
         // Repeating a test replaces the old pending test.
@@ -251,7 +276,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        Task { @MainActor in
+            let options: UNNotificationPresentationOptions =
+                HydrationStore.shared.settings.reminderSoundEnabled
+                ? [.banner, .sound] : [.banner]
+            completionHandler(options)
+        }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
@@ -262,6 +292,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             case "DRANK_150": HydrationStore.shared.add(150)
             case "DRANK_250": HydrationStore.shared.add(250)
             case "DRANK_350": HydrationStore.shared.add(350)
+            case "SNOOZE_PREFERRED":
+                HydrationStore.shared.snooze(
+                    minutes: HydrationStore.shared.settings.snoozeMinutes)
             case "SNOOZE_15": HydrationStore.shared.snooze(minutes: 15)
             case "SNOOZE_60": HydrationStore.shared.snooze(minutes: 60)
             default: break
