@@ -135,6 +135,34 @@ struct DaySchedule: Codable, Equatable, Identifiable {
     var sleepLabel: String { Self.timeLabel(sleepMinute) }
 }
 
+/// User-defined reminder urgency; never a drinking requirement.
+enum ReminderStyle: String, Codable, CaseIterable, Identifiable {
+    case gentle, balanced, active
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .gentle: return "Бережный"
+        case .balanced: return "Сбалансированный"
+        case .active: return "Активный"
+        }
+    }
+    var firstFollowUpMinutes: Int {
+        switch self {
+        case .gentle: return 60
+        case .balanced: return 40
+        case .active: return 30
+        }
+    }
+    var laterFollowUpMinutes: Int {
+        switch self {
+        case .gentle: return 90
+        case .balanced: return 60
+        case .active: return 45
+        }
+    }
+}
+
 struct HydrationSettings: Codable, Equatable {
     var dailyGoal: Int = 2000
     var wakeHour: Int = 8
@@ -144,6 +172,14 @@ struct HydrationSettings: Codable, Equatable {
     var minimumReminderMinutes: Int = 30
     var preferredTimeZoneID: String = "system"
     var adaptiveReminderVersion: Int = 1
+    /// New optional preferences decode safely from legacy hydration.json.
+    var reminderStyle: ReminderStyle = .balanced
+    var reminderSoundEnabled: Bool = true
+    var snoozeMinutes: Int = 15
+    /// Only one active explicit Snooze at a time, including after app restarts.
+    var snoozeUntil: Date? = nil
+    /// Temporary quiet period; unlike sleep it does not move the wake anchor.
+    var reminderPauseUntil: Date? = nil
 
     var weeklySchedule: [DaySchedule] = DaySchedule.defaults
     /// A temporary manual bedtime override, expiring at the next weekly wake time.
@@ -158,6 +194,14 @@ struct HydrationSettings: Codable, Equatable {
     var quickVolumes: [Int] = [150, 250, 350]
 
     init() {}
+
+    func remindersPaused(at date: Date) -> Bool {
+        reminderPauseUntil.map { $0 > date } ?? false
+    }
+
+    func snoozeQuietUntil() -> Date? {
+        snoozeUntil?.addingTimeInterval(20 * 60)
+    }
 
     func schedule(for weekday: Int) -> DaySchedule {
         weeklySchedule.first(where: { $0.weekday == weekday })
@@ -176,6 +220,8 @@ struct HydrationSettings: Codable, Equatable {
         case minimumReminderMinutes, preferredTimeZoneID, adaptiveReminderVersion
         case weeklySchedule, sleepStartedAt, sleepPauseUntil, wokeUpAt
         case customDrinks, vessels, favorites, quickVolumes
+        case reminderStyle, reminderSoundEnabled, snoozeMinutes
+        case snoozeUntil, reminderPauseUntil
     }
 
     init(from decoder: Decoder) throws {
@@ -193,6 +239,12 @@ struct HydrationSettings: Codable, Equatable {
         minimumReminderMinutes = previousVersion == 0 && previousMinimum == 75
             ? 30 : min(240, max(30, previousMinimum))
         adaptiveReminderVersion = 1
+        reminderStyle = try c.decodeIfPresent(ReminderStyle.self, forKey: .reminderStyle) ?? .balanced
+        reminderSoundEnabled = try c.decodeIfPresent(Bool.self, forKey: .reminderSoundEnabled) ?? true
+        let previousSnooze = try c.decodeIfPresent(Int.self, forKey: .snoozeMinutes) ?? 15
+        snoozeMinutes = [5, 10, 15, 30, 60].contains(previousSnooze) ? previousSnooze : 15
+        snoozeUntil = try c.decodeIfPresent(Date.self, forKey: .snoozeUntil)
+        reminderPauseUntil = try c.decodeIfPresent(Date.self, forKey: .reminderPauseUntil)
 
         weeklySchedule = try c.decodeIfPresent([DaySchedule].self,
                                                 forKey: .weeklySchedule)
