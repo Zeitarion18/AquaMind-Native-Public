@@ -215,6 +215,13 @@ struct HydrationSettings: Codable, Equatable {
         return date >= started && date < until
     }
 
+    /// Keep the "Проснулся" button available for a late wake-up, even after
+    /// automatic scheduled resume. Expire abandoned sessions after a day.
+    func wakeConfirmationPending(at date: Date) -> Bool {
+        guard let started = sleepStartedAt else { return false }
+        return date >= started && date < started.addingTimeInterval(24 * 3600)
+    }
+
     enum CodingKeys: String, CodingKey {
         case dailyGoal, wakeHour, sleepHour, remindersEnabled
         case minimumReminderMinutes, preferredTimeZoneID, adaptiveReminderVersion
