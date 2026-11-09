@@ -42,6 +42,60 @@ struct SettingsView: View {
                     }
                     .tint(AquaTheme.cyan)
                     if store.settings.remindersEnabled {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Picker("Режим напоминаний", selection: Binding(
+                                get: { store.settings.reminderStyle },
+                                set: { store.setReminderStyle($0) })) {
+                                ForEach(ReminderStyle.allCases) { style in
+                                    Text(style.title).tag(style)
+                                }
+                            }
+                            Text("Повторы без новой записи: первые два через \(ReminderPlanner.unloggedFollowUpMinutes(afterPreviousCount: 1, settings: store.settings)) мин, следующие через \(ReminderPlanner.unloggedFollowUpMinutes(afterPreviousCount: 3, settings: store.settings)) мин. Интервал после напитка рассчитывается отдельно.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+
+                        Toggle(isOn: Binding(
+                            get: { store.settings.reminderSoundEnabled },
+                            set: { store.setReminderSound($0) })) {
+                            Label("Звук напоминаний", systemImage: "speaker.wave.2")
+                        }
+                        .tint(AquaTheme.cyan)
+                        Text("Без звука уведомления останутся видимыми. Вибрация зависит от настроек iPhone; принудительно включать её приложение не может.")
+                            .font(.caption).foregroundStyle(.secondary)
+
+                        Picker("Отложить в уведомлении", selection: Binding(
+                            get: { store.settings.snoozeMinutes },
+                            set: { store.setSnoozeMinutes($0) })) {
+                            ForEach([5, 10, 15, 30, 60], id: \.self) { value in
+                                Text("\(value) минут").tag(value)
+                            }
+                        }
+
+                        if let until = store.settings.reminderPauseUntil,
+                           until > Date.now {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Пауза до \(AquaDate.time(until, timeZone: store.settings.timeZone))",
+                                      systemImage: "pause.circle.fill")
+                                    .foregroundStyle(AquaTheme.cyan)
+                                Button("Возобновить напоминания") {
+                                    store.resumeReminders()
+                                }
+                                .font(.subheadline.weight(.semibold))
+                            }
+                        } else {
+                            Menu {
+                                Button("На 30 минут") { store.pauseReminders(minutes: 30) }
+                                Button("На 1 час") { store.pauseReminders(minutes: 60) }
+                                Button("На 2 часа") { store.pauseReminders(minutes: 120) }
+                                Button("До следующего пробуждения") {
+                                    store.pauseUntilNextWake()
+                                }
+                            } label: {
+                                Label("Приостановить напоминания",
+                                      systemImage: "pause.circle")
+                            }
+                        }
+
                         Stepper("Минимальная пауза: \(store.settings.minimumReminderMinutes) мин",
                                 value: Binding(
                                     get: { store.settings.minimumReminderMinutes },
@@ -151,8 +205,8 @@ struct SettingsView: View {
                             }
                         }
                     }
-                } header: { Text("Напоминания") }
-                footer: { Text("Расписание отдельно для каждого дня недели. Ручные кнопки «Лёг спать» и «Проснулся» корректируют сегодняшний режим. Автоматизации «Команд» могут запускать те же действия по режиму фокусирования «Сон», но это не датчик фактического сна.") }
+                } header: { Text("Smart Reminders 3.0") }
+                footer: { Text("Выбранный режим управляет только настойчивостью напоминаний, а не количеством воды. Пауза и откладывание сохраняются после перезапуска. Расписание сна настраивается по дням недели; настройки фокусирования iOS могут повлиять на показ уведомлений.") }
 
                 Section {
                     NavigationLink {
@@ -231,7 +285,7 @@ struct SettingsView: View {
                 }
 
                 Section("О приложении") {
-                    LabeledContent("Версия", value: "0.7.5 Aurora Bubble Mask Fix")
+                    LabeledContent("Версия", value: "0.7.6 Smart Reminders 3.0")
                     LabeledContent("Платформа", value: "SwiftUI · iOS 17+")
                     Text("Напитки учитываются по введённому объёму. Для супа указывай только жидкую часть.")
                         .font(.footnote).foregroundStyle(.secondary)
