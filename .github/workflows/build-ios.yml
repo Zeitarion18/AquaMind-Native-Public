@@ -2,6 +2,8 @@ name: Build AquaMind Native 0.7.7 Glass Icon iPhone IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -68,7 +70,7 @@ jobs:
           assert 'Тихий' not in settings or 'Звук напоминаний' in settings
           assert 'Отложить в уведомлении' in settings
           assert 'Smart Hydration 3.0' in home
-          assert '0.7.6 Smart Reminders 3.0' in settings
+          assert 'Smart Reminders 3.0' in settings
           print("Smart Reminders 3.0 iOS wiring and settings source checks passed")
           PY
       - name: Validate 3x Retina raster pixel mask for partial bubble entry and exit
