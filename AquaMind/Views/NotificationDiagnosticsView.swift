@@ -142,6 +142,11 @@ struct NotificationDiagnosticsView: View {
         @unknown default: statusTitle = "Неизвестно"
         }
         rows = [
+            DiagnosticRow(title: "Режим AquaMind", value: store.settings.reminderStyle.title),
+            DiagnosticRow(title: "Звук AquaMind",
+                          value: store.settings.reminderSoundEnabled ? "Включён" : "Выключен"),
+            DiagnosticRow(title: "Отложить в уведомлении",
+                          value: "\(store.settings.snoozeMinutes) мин"),
             DiagnosticRow(title: "Уведомления", value: statusTitle),
             DiagnosticRow(title: "Оповещения",
                           value: settingLabel(authorization.alertSetting)),
@@ -155,6 +160,15 @@ struct NotificationDiagnosticsView: View {
         var advice: [String] = []
         if !store.settings.remindersEnabled {
             advice.append("Умные напоминания отключены в AquaMind.")
+        }
+        if store.settings.remindersPaused(at: now) {
+            advice.append("Установлена временная пауза: обычные напоминания после её окончания сохраняются в очереди.")
+        }
+        if let until = store.settings.snoozeUntil, until > now {
+            advice.append("Действует отложенное напоминание. До него и 20 минут после обычные повторы не появятся.")
+        }
+        if !store.settings.reminderSoundEnabled {
+            advice.append("Звук отключён в AquaMind. Вибрация зависит от настроек iPhone.")
         }
         if !permitted {
             advice.append("Проверь разрешение AquaMind в настройках iPhone.")
