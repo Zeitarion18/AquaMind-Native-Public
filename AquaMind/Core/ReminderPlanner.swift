@@ -8,6 +8,7 @@ enum ReminderPlanner {
 
     /// Short reminders after a scheduled alert that was not followed by a
     /// drink entry. This models *no new log*, NOT notification delivery/read.
+    // Balanced defaults are the exact 0.7.3 cadence.
     static let firstUnloggedFollowUpMinutes = 40
     static let continuedUnloggedFollowUpMinutes = 60
     /// Keep room for mornings on subsequent days in iOS's 64-request queue.
@@ -17,8 +18,8 @@ enum ReminderPlanner {
                                         settings: HydrationSettings) -> Int {
         // Honor the user's explicit "not more often than" setting.
         max(settings.minimumReminderMinutes,
-            count <= 2 ? firstUnloggedFollowUpMinutes :
-                         continuedUnloggedFollowUpMinutes)
+            count <= 2 ? settings.reminderStyle.firstFollowUpMinutes :
+                         settings.reminderStyle.laterFollowUpMinutes)
     }
 
     /// Local notifications keep stable identifiers for the same absolute minute.
@@ -240,6 +241,10 @@ enum ReminderPlanner {
         let today = cal.startOfDay(for: now)
         var allCandidates: [Date] = []
         var firstOfUpcomingDays: [Date] = []
+        // Persisted fences prevent scheduled reminders from returning after
+        // app restart or a drink log during explicit Pause or Snooze.
+        let pauseEnd = settings.reminderPauseUntil ?? .distantPast
+        let snoozeQuietEnd = settings.snoozeQuietUntil() ?? .distantPast
 
         // Generate candidates independently of clock-refresh timing.
         // A logged drink determines the first alert; after that, we can
@@ -281,15 +286,14 @@ enum ReminderPlanner {
                 let sleeping = settings.sleepStartedAt.map { started in
                     next >= started && next < (settings.sleepPauseUntil ?? started)
                 } ?? false
-                if next > now.addingTimeInterval(5) && !sleeping {
+                if next > now.addingTimeInterval(5) &&
+                   next >= pauseEnd && next > snoozeQuietEnd && !sleeping {
                     allCandidates.append(next)
                     if firstForThisDay == nil { firstForThisDay = next }
                 }
 
-                // The *first two* follow-ups are separated by 40 minutes.
-                // Further repeats settle at 60 minutes so the phone is not
-                // bombarded, regardless of a 120-minute learned cadence.
-                // The configured minimum interval always takes precedence.
+                // The first two follow-ups follow the selected urgency,
+                // later alerts calm down. User minimum is always respected.
                 followUpCount += 1
                 let pause = unloggedFollowUpMinutes(
                     afterPreviousCount: followUpCount, settings: settings)
@@ -339,6 +343,20 @@ enum ReminderPlanner {
                 : "В выбранном расписании ближайших напоминаний сейчас нет."
             return ReminderInsight(next: nil, headline: "Пока без напоминаний",
                 explanation: text, recentMilliliters: recent, todayMilliliters: total,
+                recommendedPauseMinutes: nil, learnedMinutes: learned)
+        }
+
+        if settings.remindersPaused(at: now) {
+            return ReminderInsight(next: next, headline: "Напоминания на паузе",
+                explanation: "Ты временно приостановил уведомления. Они продолжатся после окончания паузы по обычному расписанию.",
+                recentMilliliters: recent, todayMilliliters: total,
+                recommendedPauseMinutes: nil, learnedMinutes: learned)
+        }
+
+        if let due = settings.snoozeUntil, due > now {
+            return ReminderInsight(next: due, headline: "Отложено по твоему запросу",
+                explanation: "До выбранного времени AquaMind не отправляет обычные повторы. После него действует защитный интервал в 20 минут.",
+                recentMilliliters: recent, todayMilliliters: total,
                 recommendedPauseMinutes: nil, learnedMinutes: learned)
         }
 
