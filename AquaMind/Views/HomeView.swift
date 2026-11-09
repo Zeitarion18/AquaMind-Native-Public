@@ -369,7 +369,8 @@ struct HomeView: View {
                     Text(sleeping ? "Пауза на сон" : "Твой режим дня")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                    Text(sleeping ? "Напоминания временно приостановлены"
+                    Text(sleeping
+                         ? "До \(AquaDate.time(store.settings.sleepPauseUntil ?? timeline.date, timeZone: store.settings.timeZone)) или «Проснулся»"
                          : "Сегодня: \(today.wakeLabel)–\(today.sleepLabel)")
                         .font(.caption).foregroundStyle(AquaTheme.muted)
                 }
@@ -441,6 +442,18 @@ struct HomeView: View {
                                 .foregroundStyle(.white)
                             Text(AquaDate.fullDate(date, timeZone: store.settings.timeZone))
                                 .font(.subheadline).foregroundStyle(AquaTheme.muted)
+                            if let verified = pendingTime {
+                                Label(ReminderCountdown.message(until: verified, from: timeline.date),
+                                      systemImage: "hourglass")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(AquaTheme.cyan)
+                                    .accessibilityLabel("Следующее подтверждённое напоминание. " +
+                                        ReminderCountdown.message(until: verified, from: timeline.date))
+                            } else if case .mismatch = store.reminderQueueStatus {
+                                Text("Это прогноз. Очередь iOS требует восстановления.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.orange)
+                            }
                         } else {
                             Text("Пока не запланировано")
                                 .font(.title3.weight(.semibold))
@@ -486,6 +499,18 @@ struct HomeView: View {
                     .padding(10)
                     .background(AquaTheme.background.opacity(0.70),
                                 in: RoundedRectangle(cornerRadius: 13))
+
+                    if case .mismatch = store.reminderQueueStatus {
+                        Button {
+                            store.restorePendingReminders()
+                        } label: {
+                            Label("Восстановить очередь уведомлений",
+                                  systemImage: "arrow.triangle.2.circlepath")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(AquaTheme.cyan)
+                    }
 
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -536,6 +561,16 @@ struct HomeView: View {
             .padding(17)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AquaTheme.panel, in: RoundedRectangle(cornerRadius: 20))
+            .onChange(of: timeline.date) { _, now in
+                // A delivered notification disappears from the pending queue.
+                // Refresh in the foreground so the countdown never sticks
+                // to an alert that already fired.
+                switch store.reminderQueueStatus {
+                case .confirmed(let next, _), .postponed(let next):
+                    if next <= now { store.restorePendingReminders() }
+                default: break
+                }
+            }
         }
     }
 
@@ -579,7 +614,7 @@ struct HomeView: View {
         case .disabled: return "Включи напоминания в настройках AquaMind."
         case .permissionRequired: return "Открой настройки уведомлений iPhone и разреши AquaMind отправлять сообщения."
         case .mismatch(let expected, let actual):
-            return "Ожидалось \(expected), найдено \(actual). Открой приложение снова, чтобы перепланировать."
+            return "План: \(expected), в iOS: \(actual). Нажми «Восстановить очередь уведомлений»."
         }
     }
 
