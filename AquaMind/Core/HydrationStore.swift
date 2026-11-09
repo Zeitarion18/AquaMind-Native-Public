@@ -394,6 +394,16 @@ final class HydrationStore: ObservableObject {
         }
     }
 
+    /// Explicitly reconcile iOS pending requests without clearing the archive,
+    /// waking the user, or resetting their chosen Snooze/Pause preferences.
+    func restorePendingReminders() {
+        guard settings.remindersEnabled else {
+            reminderQueueStatus = .disabled
+            return
+        }
+        NotificationManager.shared.schedule(entries: entries, settings: settings)
+    }
+
     /// Snooze is recorded in the archive before the iOS queue is rebuilt,
     /// preventing any early regular reminder from coming back on refresh.
     func snooze(minutes: Int) {
