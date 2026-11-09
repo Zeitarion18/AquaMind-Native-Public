@@ -1,7 +1,9 @@
-name: Build AquaMind Native 0.7.7 Glass Icon iPhone IPA
+name: Build AquaMind Native 0.7.8 Borderless Icon iPhone IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -189,13 +191,18 @@ jobs:
           assert asset["images"][0]["filename"] == "AppIcon.png"
           icon = folder / "AppIcon.png"
           assert icon.exists() and icon.stat().st_size > 500_000
+          import hashlib
+          # Exact selected borderless artwork; safeguards against accidentally
+          # reverting to the dark framed 0.7.7 icon in later source changes.
+          assert hashlib.sha256(icon.read_bytes()).hexdigest() == "1a5020c906b09c799097b5931dc176f6eb4b76b17234d647c4da981efc7d4811"
+          
           assert icon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
           output = subprocess.check_output(
               ["sips", "-g", "pixelWidth", "-g", "pixelHeight",
                "-g", "hasAlpha", str(icon)], text=True)
           assert "pixelWidth: 1024" in output and "pixelHeight: 1024" in output
           assert "hasAlpha: no" in output, output
-          print("0.7.7: selected glassmorphism PNG is 1024x1024 RGB, no alpha")
+          print("0.7.8: edge-to-edge glass PNG is 1024x1024 RGB, no alpha")
           PY
       - name: Generate native iPhone Xcode project
         run: xcodegen generate --spec project.yml
@@ -209,28 +216,28 @@ jobs:
           mkdir -p ipa/Payload
           cp -R build/Build/Products/Release-iphoneos/AquaMind.app ipa/Payload/
           cd ipa
-          zip -qr AquaMind-Native-0.7.7-Standard.ipa Payload
+          zip -qr AquaMind-Native-0.7.8-Standard.ipa Payload
       - name: Verify real IPA metadata and screen-mode regression
         run: |
           python3 - <<'PY'
           import plistlib, zipfile
-          path = "ipa/AquaMind-Native-0.7.7-Standard.ipa"
+          path = "ipa/AquaMind-Native-0.7.8-Standard.ipa"
           with zipfile.ZipFile(path) as z:
               assert z.testzip() is None
               info = plistlib.loads(z.read("Payload/AquaMind.app/Info.plist"))
-              assert info["CFBundleShortVersionString"] == "0.7.7"
-              assert info["CFBundleVersion"] == "27"
+              assert info["CFBundleShortVersionString"] == "0.7.8"
+              assert info["CFBundleVersion"] == "28"
               assert info["CFBundleIdentifier"] == "com.aquamind.nativehydration"
               assert info.get("UIDeviceFamily") == [1], info.get("UIDeviceFamily")
               assert isinstance(info.get("UILaunchScreen"), dict), "missing full-screen launch configuration"
               assert isinstance(info.get("UIApplicationSceneManifest"), dict), "missing iPhone scene configuration"
               assert not any("AquaMindWidgets.appex/" in x for x in z.namelist())
               assert any("AquaMind.app/AquaMind" in x for x in z.namelist())
-              print("AquaMind 0.7.7 IPA verified: correct version, iPhone-only full screen, no WidgetKit")
+              print("AquaMind 0.7.8 IPA verified: correct version, iPhone-only full screen, no WidgetKit")
           PY
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AquaMind-Native-0.7.7-Standard-IPA
-          path: ipa/AquaMind-Native-0.7.7-Standard.ipa
+          name: AquaMind-Native-0.7.8-Standard-IPA
+          path: ipa/AquaMind-Native-0.7.8-Standard.ipa
           if-no-files-found: error

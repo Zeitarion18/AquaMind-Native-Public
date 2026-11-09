@@ -285,7 +285,7 @@ struct SettingsView: View {
                 }
 
                 Section("О приложении") {
-                    LabeledContent("Версия", value: "0.7.7 Glass Icon")
+                    LabeledContent("Версия", value: "0.7.8 Borderless Glass Icon")
                     LabeledContent("Платформа", value: "SwiftUI · iOS 17+")
                     Text("Напитки учитываются по введённому объёму. Для супа указывай только жидкую часть.")
                         .font(.footnote).foregroundStyle(.secondary)
