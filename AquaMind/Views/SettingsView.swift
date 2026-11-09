@@ -205,7 +205,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                } header: { Text("Smart Reminders 3.0") }
+                } header: { Text("Smart Reminders 3.1") }
                 footer: { Text("Выбранный режим управляет только настойчивостью напоминаний, а не количеством воды. Пауза и откладывание сохраняются после перезапуска. Расписание сна настраивается по дням недели; настройки фокусирования iOS могут повлиять на показ уведомлений.") }
 
                 Section {
@@ -227,8 +227,10 @@ struct SettingsView: View {
                         Button("Проснулся") { store.wakeUp() }
                             .buttonStyle(.borderedProminent)
                             .tint(AquaTheme.cyan)
+                            .disabled(!store.settings.wakeConfirmationPending(at: Date()))
                     }
-                    Text("Через приложение «Команды» можно также привязать действия AquaMind «Лёг спать» и «Проснулся» к включению и выключению фокусирования «Сон». Эти команды нужно настроить один раз на iPhone.")
+                    Text("После «Лёг спать» напоминания приостанавливаются до запланированного подъёма. Если проснулся раньше или позже — нажми «Проснулся», и AquaMind пересчитает время от фактического подъёма. Действия также можно связать с фокусированием «Сон» через «Команды».")
+                        .font(.footnote).foregroundStyle(.secondary)
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
@@ -285,7 +287,7 @@ struct SettingsView: View {
                 }
 
                 Section("О приложении") {
-                    LabeledContent("Версия", value: "0.7.8 Borderless Glass Icon")
+                    LabeledContent("Версия", value: "0.7.9 Smart Reminders 3.1")
                     LabeledContent("Платформа", value: "SwiftUI · iOS 17+")
                     Text("Напитки учитываются по введённому объёму. Для супа указывай только жидкую часть.")
                         .font(.footnote).foregroundStyle(.secondary)
