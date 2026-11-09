@@ -154,6 +154,7 @@ final class HydrationStore: ObservableObject {
             entries.append(WaterEntry(milliliters: ml, kind: selectedDrink,
                                       isEstimated: estimated))
         }
+        settings.snoozeUntil = nil
         commit()
     }
 
@@ -239,6 +240,7 @@ final class HydrationStore: ObservableObject {
     func add(_ ml: Int, kind: DrinkKind = .water) {
         guard (25...2000).contains(ml) else { return }
         entries.append(WaterEntry(milliliters: ml, kind: kind))
+        settings.snoozeUntil = nil
         commit()
     }
 
@@ -274,6 +276,7 @@ final class HydrationStore: ObservableObject {
     /// Called from the app or the corresponding Shortcuts action.
     func beginSleep() {
         let now = Date()
+        settings.snoozeUntil = nil
         settings.sleepStartedAt = now
         settings.sleepPauseUntil = ReminderPlanner.nextScheduledWake(
             after: now, settings: settings
@@ -296,6 +299,43 @@ final class HydrationStore: ObservableObject {
         commit()
     }
 
+    func setReminderStyle(_ style: ReminderStyle) {
+        settings.reminderStyle = style
+        commit()
+    }
+
+    func setReminderSound(_ enabled: Bool) {
+        settings.reminderSoundEnabled = enabled
+        commit()
+    }
+
+    func setSnoozeMinutes(_ value: Int) {
+        guard [5, 10, 15, 30, 60].contains(value) else { return }
+        settings.snoozeMinutes = value
+        commit()
+    }
+
+    func pauseReminders(minutes: Int) {
+        guard settings.remindersEnabled, [30, 60, 120].contains(minutes) else { return }
+        settings.reminderPauseUntil = Date().addingTimeInterval(Double(minutes * 60))
+        settings.snoozeUntil = nil
+        commit()
+    }
+
+    func pauseUntilNextWake() {
+        guard settings.remindersEnabled else { return }
+        settings.reminderPauseUntil = ReminderPlanner.nextScheduledWake(
+            after: Date(), settings: settings
+        )
+        settings.snoozeUntil = nil
+        commit()
+    }
+
+    func resumeReminders() {
+        settings.reminderPauseUntil = nil
+        commit()
+    }
+
     func setTimeZone(_ value: String) {
         settings.preferredTimeZoneID = value
         commit()
@@ -304,6 +344,8 @@ final class HydrationStore: ObservableObject {
     func setReminders(_ enabled: Bool) {
         guard enabled else {
             settings.remindersEnabled = false
+            settings.snoozeUntil = nil
+            settings.reminderPauseUntil = nil
             commit()
             return
         }
@@ -352,8 +394,23 @@ final class HydrationStore: ObservableObject {
         }
     }
 
+    /// Snooze is recorded in the archive before the iOS queue is rebuilt,
+    /// preventing any early regular reminder from coming back on refresh.
     func snooze(minutes: Int) {
-        NotificationManager.shared.snooze(minutes: minutes)
+        guard (1...240).contains(minutes), settings.remindersEnabled else { return }
+        let now = Date()
+        let requested = now.addingTimeInterval(Double(minutes * 60))
+        let due: Date
+        if ReminderPlanner.isQuietTime(settings: settings, now: requested) {
+            due = ReminderPlanner.nextScheduledWake(after: requested,
+                                                    settings: settings)
+                .addingTimeInterval(30 * 60)
+        } else {
+            due = requested
+        }
+        settings.snoozeUntil = due
+        settings.reminderPauseUntil = nil
+        commit()
     }
 
     /// Widget links open the host application and log exactly one water entry.
