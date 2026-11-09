@@ -123,7 +123,8 @@ struct NotificationDiagnosticsView: View {
                 ($0.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
             }.filter { $0 > now }.sorted()
         futureDates = actual
-        let matches = NotificationQueueComparison.matches(planned: desired, queued: actual)
+        let matches = NotificationQueueComparison.matches(
+            planned: desired, queued: actual, snoozeCount: snooze.count)
         queueSummary = "В очереди \(actual.count), ожидается \(desired.count)" +
             (matches ? " · совпадает" : " · нужна проверка")
         if let next = snooze.first {
@@ -147,6 +148,8 @@ struct NotificationDiagnosticsView: View {
                           value: store.settings.reminderSoundEnabled ? "Включён" : "Выключен"),
             DiagnosticRow(title: "Отложить в уведомлении",
                           value: "\(store.settings.snoozeMinutes) мин"),
+            DiagnosticRow(title: "Отложенных в очереди iOS",
+                          value: "\(snooze.count)"),
             DiagnosticRow(title: "Уведомления", value: statusTitle),
             DiagnosticRow(title: "Оповещения",
                           value: settingLabel(authorization.alertSetting)),
@@ -187,6 +190,9 @@ struct NotificationDiagnosticsView: View {
         }
         if permitted && authorization.scheduledDeliverySetting == .enabled {
             advice.append("Сводка уведомлений может отложить показ.")
+        }
+        if snooze.count > 1 {
+            advice.append("В iOS обнаружено несколько отложенных уведомлений. Нажми «Перепланировать уведомления», чтобы убрать повторы.")
         }
         if permitted && store.settings.remindersEnabled && !matches {
             advice.append("Число или время в очереди отличается от расчёта. Попробуй перепланировать.")
