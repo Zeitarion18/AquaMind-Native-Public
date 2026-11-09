@@ -2,8 +2,6 @@ name: Build AquaMind Native 0.7.8 Borderless Icon iPhone IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
