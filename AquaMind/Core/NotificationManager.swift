@@ -88,7 +88,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 if let old = existingByID[id],
                    let next = (old.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate(),
                    abs(next.timeIntervalSince(date)) <= 60 &&
-                   (old.content.sound != nil) == settings.reminderSoundEnabled {
+                   (old.content.sound != nil) == settings.reminderSoundEnabled &&
+                   old.content.categoryIdentifier == "WATER_REMINDER" {
                     // Date and sound match; keep stable pending request.
                     continue
                 }
@@ -154,7 +155,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                     .nextTriggerDate(),
                    let due,
                    abs(date.timeIntervalSince(due)) <= 3,
-                   (request.content.sound != nil) == settings.reminderSoundEnabled {
+                   (request.content.sound != nil) == settings.reminderSoundEnabled &&
+                   request.content.categoryIdentifier == "WATER_REMINDER" {
                     retainedSnooze = true
                 } else {
                     removedSnoozeIDs.append(request.identifier)
@@ -207,7 +209,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private func readQueueStatus(center: UNUserNotificationCenter) async -> ReminderQueueStatus {
         let requests = await center.pendingNotificationRequests()
         let now = Date()
-        let planned = lastPlannedDates.filter { $0 > now.addingTimeInterval(-65) }.sorted()
+        // Expired requests disappear from iOS immediately after firing. Do not
+        // count them as missing or show a false queue error for another minute.
+        let planned = lastPlannedDates.filter { $0 > now.addingTimeInterval(5) }.sorted()
         let actual = requests.filter { $0.identifier.hasPrefix("am_reminder_") }
             .compactMap { request -> Date? in
                 (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
@@ -219,23 +223,28 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             .filter { $0 > now }
             .sorted()
 
-        // An explicit snooze is not a failure of the normal schedule.
-        // Show the actual snooze time in the UI.
+        // First verify ALL regular requests. The old implementation returned
+        // .postponed before this comparison and could hide stale duplicates.
+        // Also reject two pending Snoozes, even when regular dates agree.
+        guard NotificationQueueComparison.matches(
+            planned: planned, queued: actual, snoozeCount: delayed.count
+        ) else {
+            return .mismatch(
+                planned: planned.count,
+                queued: actual.count + max(0, delayed.count - 1))
+        }
+
+        // Show Snooze only after the entire queue passes verification.
         if let first = delayed.first, (actual.first == nil || first < actual[0]) {
             return .postponed(next: first)
         }
-
-        if planned.isEmpty && actual.isEmpty {
-            return .empty
-        }
-        // UNCalendarNotificationTrigger stores minute precision, so accept
-        // up to 65 seconds difference from an arbitrary-second forecast.
-        let agrees = planned.count == actual.count &&
-            zip(planned, actual).allSatisfy { abs($0.timeIntervalSince($1)) <= 65 }
-        if agrees, let first = actual.first {
+        if let first = actual.first {
             return .confirmed(next: first, count: actual.count)
         }
-        return .mismatch(planned: planned.count, queued: actual.count)
+        if let first = delayed.first {
+            return .postponed(next: first)
+        }
+        return .empty
     }
 
     /// Diagnostic notification: independent of the normal hydration schedule.
