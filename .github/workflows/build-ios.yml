@@ -2,6 +2,8 @@ name: Build AquaMind Native 0.7.7 Glass Icon iPhone IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -189,7 +191,7 @@ jobs:
           assert asset["images"][0]["filename"] == "AppIcon.png"
           icon = folder / "AppIcon.png"
           assert icon.exists() and icon.stat().st_size > 500_000
-          assert icon.read_bytes().startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+          assert icon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
           output = subprocess.check_output(
               ["sips", "-g", "pixelWidth", "-g", "pixelHeight",
                "-g", "hasAlpha", str(icon)], text=True)
